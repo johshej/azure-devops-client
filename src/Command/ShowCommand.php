@@ -4,7 +4,9 @@ namespace Ado\Command;
 
 use Ado\Api\AzureDevOps;
 use Ado\Config\Config;
+use Ado\Util\HtmlText;
 use Symfony\Component\Console\Attribute\AsCommand;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
@@ -24,6 +26,7 @@ class ShowCommand extends Command
     {
         $this
             ->addArgument('id', InputArgument::REQUIRED, 'Work item ID')
+            ->addOption('no-comments', null, InputOption::VALUE_NONE, 'Skip loading comments')
             ->addOption('project', 'p', InputOption::VALUE_REQUIRED, 'Project override');
     }
 
@@ -52,7 +55,7 @@ class ShowCommand extends Command
             ['Assigned'  => $this->formatAssigned($f['System.AssignedTo'] ?? null)],
             ['Iteration' => $f['System.IterationPath'] ?? ''],
             ['Area'      => $f['System.AreaPath'] ?? ''],
-            ['Created'   => $this->formatDate($f['System.CreatedDate'] ?? '')],
+            ['Created'   => $this->formatDate($f['System.CreatedDate'] ?? '') . '  ' . $this->formatAssigned($f['System.CreatedBy'] ?? null)],
             ['Changed'   => $this->formatDate($f['System.ChangedDate'] ?? '')],
         );
 
@@ -60,30 +63,25 @@ class ShowCommand extends Command
             $io->text("<href={$url}>{$url}</>");
         }
 
-        // Parse relations into parent and children
+        // Parent
         $parentId = null;
         $childIds = [];
-
         foreach ($item['relations'] ?? [] as $rel) {
-            $relType = $rel['rel'] ?? '';
             $relId = $this->extractIdFromUrl($rel['url'] ?? '');
             if (!$relId) continue;
-
-            if ($relType === 'System.LinkTypes.Hierarchy-Reverse') {
+            if ($rel['rel'] === 'System.LinkTypes.Hierarchy-Reverse') {
                 $parentId = $relId;
-            } elseif ($relType === 'System.LinkTypes.Hierarchy-Forward') {
+            } elseif ($rel['rel'] === 'System.LinkTypes.Hierarchy-Forward') {
                 $childIds[] = $relId;
             }
         }
 
-        // Fetch and display parent
         if ($parentId) {
             $io->section('Parent');
             try {
                 $parent = $this->api->getWorkItem($project, $parentId);
                 $pf = $parent['fields'];
-                $io->text(sprintf(
-                    '  #%d  [%s]  %s  (%s)',
+                $io->text(sprintf('  #%d  [%s]  %s  (%s)',
                     $parentId,
                     $pf['System.WorkItemType'] ?? '',
                     $pf['System.Title'] ?? '',
@@ -94,16 +92,12 @@ class ShowCommand extends Command
             }
         }
 
-        // Fetch and display children
+        // Children
         if ($childIds) {
             $io->section('Children (' . count($childIds) . ')');
             try {
                 $children = $this->api->getWorkItemsBatch($project, $childIds, [
-                    'System.Id',
-                    'System.Title',
-                    'System.WorkItemType',
-                    'System.State',
-                    'System.AssignedTo',
+                    'System.Id', 'System.Title', 'System.WorkItemType', 'System.State', 'System.AssignedTo',
                 ]);
                 $rows = array_map(fn($c) => [
                     $c['fields']['System.Id'] ?? '',
@@ -121,9 +115,28 @@ class ShowCommand extends Command
         // Description
         $desc = $f['System.Description'] ?? $f['Microsoft.VSTS.Common.AcceptanceCriteria'] ?? '';
         if ($desc) {
-            $desc = strip_tags($desc);
             $io->section('Description');
-            $io->text(wordwrap(trim($desc), 100));
+            $output->writeln(OutputFormatter::escape(HtmlText::convert($desc)));
+        }
+
+        // Comments
+        if (!$input->getOption('no-comments')) {
+            try {
+                $comments = $this->api->getWorkItemComments($project, $id);
+                if ($comments) {
+                    $io->section('Comments (' . count($comments) . ')');
+                    foreach ($comments as $comment) {
+                        $author = OutputFormatter::escape($comment['createdBy']['displayName'] ?? '?');
+                        $date = $this->formatDate($comment['createdDate'] ?? '');
+                        $text = OutputFormatter::escape(HtmlText::convert($comment['text'] ?? '', 100));
+                        $output->writeln("<comment>{$author}</comment>  <fg=gray>{$date}</>");
+                        $output->writeln($text);
+                        $output->writeln('');
+                    }
+                }
+            } catch (\RuntimeException $e) {
+                $io->comment("Could not load comments: {$e->getMessage()}");
+            }
         }
 
         return Command::SUCCESS;

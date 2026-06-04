@@ -23,6 +23,7 @@ class ListCommand extends Command
         'System.IterationPath',
         'Microsoft.VSTS.Common.Priority',
         'System.ChangedDate',
+        'System.Parent',
     ];
 
     public function __construct(private Config $config, private AzureDevOps $api)
@@ -162,8 +163,8 @@ class ListCommand extends Command
 
     private function renderGrouped(SymfonyStyle $io, OutputInterface $output, string $project, array $ids): int
     {
-        // Fetch all items with their relations
-        $items = $this->api->getWorkItemsBatchWithRelations($project, $ids, self::FIELDS);
+        // Fetch all items — System.Parent gives us the parent ID directly
+        $items = $this->api->getWorkItemsBatch($project, $ids, self::FIELDS);
 
         // Index items by ID
         $byId = [];
@@ -171,26 +172,19 @@ class ListCommand extends Command
             $byId[$item['id']] = $item;
         }
 
-        // Determine parent ID for each item
-        $parentOf = [];   // childId => parentId
-        $childrenOf = []; // parentId => [childId, ...]
-
+        // Build parent map from System.Parent field
+        $parentOf = []; // childId => parentId
         foreach ($items as $item) {
-            foreach ($item['relations'] ?? [] as $rel) {
-                if ($rel['rel'] === 'System.LinkTypes.Hierarchy-Reverse') {
-                    if (preg_match('/\/workItems\/(\d+)$/i', $rel['url'], $m)) {
-                        $parentId = (int) $m[1];
-                        $parentOf[$item['id']] = $parentId;
-                        $childrenOf[$parentId][] = $item['id'];
-                    }
-                }
+            $parentId = $item['fields']['System.Parent'] ?? null;
+            if ($parentId) {
+                $parentOf[$item['id']] = (int) $parentId;
             }
         }
 
-        // Collect parent IDs that are not in our result set and fetch them
-        $missingParentIds = array_diff(array_values($parentOf), array_keys($byId));
+        // Fetch any parents not already in the result set (e.g. not assigned to @Me)
+        $missingParentIds = array_diff(array_unique(array_values($parentOf)), array_keys($byId));
         if ($missingParentIds) {
-            $parents = $this->api->getWorkItemsBatch($project, array_unique($missingParentIds), self::FIELDS);
+            $parents = $this->api->getWorkItemsBatch($project, $missingParentIds, self::FIELDS);
             foreach ($parents as $p) {
                 $byId[$p['id']] = $p;
             }

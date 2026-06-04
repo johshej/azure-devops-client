@@ -47,7 +47,21 @@ class AzureDevOps
     public function getWorkItemWithRelations(string $project, int $id): array
     {
         $p = rawurlencode($project);
-        return $this->get("{$p}/_apis/wit/workitems/{$id}?api-version=7.1&\$expand=relations");
+        $fields = 'System.Id,System.Title,System.WorkItemType,System.State,System.AssignedTo,'
+            . 'System.CreatedBy,System.CreatedDate,System.ChangedDate,System.IterationPath,'
+            . 'System.AreaPath,Microsoft.VSTS.Common.Priority,System.Description,'
+            . 'Microsoft.VSTS.Common.AcceptanceCriteria';
+        $item = $this->get("{$p}/_apis/wit/workitems/{$id}?api-version=7.1&fields={$fields}");
+        $withRelations = $this->get("{$p}/_apis/wit/workitems/{$id}?api-version=7.1&\$expand=relations");
+        $item['relations'] = $withRelations['relations'] ?? [];
+        return $item;
+    }
+
+    public function getWorkItemComments(string $project, int $id): array
+    {
+        $p = rawurlencode($project);
+        $data = $this->get("{$p}/_apis/wit/workitems/{$id}/comments?api-version=7.1-preview.3");
+        return $data['comments'] ?? [];
     }
 
     public function getWorkItemsBatch(string $project, array $ids, array $fields = []): array
