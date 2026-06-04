@@ -1,0 +1,14 @@
+{
+    "name": "jma/ado",
+    "description": "Azure DevOps CLI",
+    "type": "project",
+    "require": {
+        "symfony/console": "^8.1"
+    },
+    "autoload": {
+        "psr-4": {
+            "Ado\\": "src/"
+        }
+    },
+    "bin": ["ado"]
+}
