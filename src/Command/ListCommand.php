@@ -41,6 +41,7 @@ class ListCommand extends Command
             ->addOption('area', 'a', InputOption::VALUE_REQUIRED, 'Filter by area path (e.g. "Soderberg Haak")')
             ->addOption('team', null, InputOption::VALUE_REQUIRED, 'Filter by team (uses the team\'s configured area paths)')
             ->addOption('group', 'g', InputOption::VALUE_NONE, 'Group results by parent')
+            ->addOption('parent', null, InputOption::VALUE_REQUIRED, 'Only show children of this work item ID')
             ->addOption('project', 'p', InputOption::VALUE_REQUIRED, 'Project override')
             ->addOption('limit', null, InputOption::VALUE_REQUIRED, 'Max results', 50);
     }
@@ -87,6 +88,10 @@ class ListCommand extends Command
 
         if ($search = $input->getOption('search')) {
             $conditions[] = "[System.Title] CONTAINS '{$search}'";
+        }
+
+        if ($parentId = $input->getOption('parent')) {
+            $conditions[] = "[System.Parent] = {$parentId}";
         }
 
         if ($area = $input->getOption('area')) {
