@@ -10,5 +10,13 @@
             "Ado\\": "src/"
         }
     },
-    "bin": ["ado"]
+    "autoload-dev": {
+        "psr-4": {
+            "Ado\\Tests\\": "tests/"
+        }
+    },
+    "bin": ["ado"],
+    "require-dev": {
+        "phpunit/phpunit": "^11"
+    }
 }

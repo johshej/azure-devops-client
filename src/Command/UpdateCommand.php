@@ -3,6 +3,7 @@
 namespace Ado\Command;
 
 use Ado\Api\AzureDevOps;
+use Ado\Comment\CommentFormatter;
 use Ado\Config\Config;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -60,24 +61,37 @@ class UpdateCommand extends Command
         if ($iteration = $input->getOption('iteration')) {
             $patch[] = ['op' => 'replace', 'path' => '/fields/System.IterationPath', 'value' => $iteration];
         }
-        if ($comment = $input->getOption('comment')) {
-            $patch[] = ['op' => 'add', 'path' => '/fields/System.History', 'value' => $comment];
-        }
 
-        if (empty($patch)) {
+        $comment = $input->getOption('comment');
+
+        if (empty($patch) && $comment === null) {
             $io->warning('Nothing to update. Use --state, --title, --assigned-to, --priority, --comment, etc.');
             return Command::FAILURE;
         }
 
         try {
-            $item = $this->api->updateWorkItem($project, $id, $patch);
+            $item = $patch ? $this->api->updateWorkItem($project, $id, $patch) : null;
+
+            if ($comment !== null) {
+                $formatter = new CommentFormatter();
+                $html = $formatter->format(
+                    $comment,
+                    fn (string $name): ?string => $this->api->resolveUserToTfid($name)
+                );
+                $this->api->addComment($project, $id, $html);
+
+                $mentioned = $formatter->lastResolvedNames();
+                if ($mentioned) {
+                    $io->text('Notified: ' . implode(', ', $mentioned));
+                }
+            }
         } catch (\RuntimeException $e) {
             $io->error($e->getMessage());
             return Command::FAILURE;
         }
 
-        $url = $item['_links']['html']['href'] ?? '';
-        $io->success("Updated #{$id}");
+        $url = $item ? ($item['_links']['html']['href'] ?? '') : '';
+        $io->success($patch ? "Updated #{$id}" : "Commented on #{$id}");
         if ($url) {
             $io->text("<href={$url}>{$url}</>");
         }

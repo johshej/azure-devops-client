@@ -8,13 +8,18 @@ use RuntimeException;
 class AzureDevOps
 {
     private string $baseUrl;
+    private string $vsspsBaseUrl;
     private string $authHeader;
+
+    /** @var list<array<string,mixed>>|null Cached graph users (lazy, all pages). */
+    private ?array $graphUsers = null;
 
     public function __construct(private Config $config)
     {
         $org = $config->get('org');
         $pat = $config->get('pat');
         $this->baseUrl = "https://dev.azure.com/{$org}";
+        $this->vsspsBaseUrl = "https://vssps.dev.azure.com/{$org}";
         $this->authHeader = 'Basic ' . base64_encode(":{$pat}");
     }
 
@@ -62,6 +67,77 @@ class AzureDevOps
         $p = rawurlencode($project);
         $data = $this->get("{$p}/_apis/wit/workitems/{$id}/comments?api-version=7.1-preview.3");
         return $data['comments'] ?? [];
+    }
+
+    /**
+     * Post a comment via the dedicated comments API. Unlike a System.History
+     * patch, this endpoint triggers @mention notifications in ADO.
+     */
+    public function addComment(string $project, int $id, string $html): array
+    {
+        $p = rawurlencode($project);
+        return $this->post(
+            "{$p}/_apis/wit/workItems/{$id}/comments?api-version=7.1-preview.3",
+            ['text' => $html]
+        );
+    }
+
+    /**
+     * Resolve a user's display name to their tfid (storageKey GUID), which is the
+     * value required by data-vss-mention. Returns null if no user matches.
+     *
+     * Flow: graph/users -> match displayName -> descriptor
+     *       -> graph/storagekeys/{descriptor} -> value (tfid).
+     */
+    public function resolveUserToTfid(string $displayName): ?string
+    {
+        $descriptor = null;
+        foreach ($this->graphUsers() as $user) {
+            if (($user['displayName'] ?? null) === $displayName) {
+                $descriptor = $user['descriptor'] ?? null;
+                break;
+            }
+        }
+
+        if ($descriptor === null) {
+            return null;
+        }
+
+        $key = $this->requestUrl(
+            'GET',
+            "{$this->vsspsBaseUrl}/_apis/graph/storagekeys/" . rawurlencode($descriptor)
+                . '?api-version=7.1-preview.1'
+        )['data'];
+
+        return $key['value'] ?? null;
+    }
+
+    /**
+     * Fetch (and cache) all graph users, following continuation-token pagination.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private function graphUsers(): array
+    {
+        if ($this->graphUsers !== null) {
+            return $this->graphUsers;
+        }
+
+        $users = [];
+        $url = "{$this->vsspsBaseUrl}/_apis/graph/users?api-version=7.1-preview.1";
+        do {
+            $response = $this->requestUrl('GET', $url);
+            foreach ($response['data']['value'] ?? [] as $user) {
+                $users[] = $user;
+            }
+            $token = $response['headers']['x-ms-continuationtoken'] ?? null;
+            $url = $token
+                ? "{$this->vsspsBaseUrl}/_apis/graph/users?api-version=7.1-preview.1"
+                    . '&continuationToken=' . rawurlencode($token)
+                : null;
+        } while ($url !== null);
+
+        return $this->graphUsers = $users;
     }
 
     public function getWorkItemsBatch(string $project, array $ids, array $fields = []): array
@@ -211,7 +287,18 @@ class AzureDevOps
 
     private function request(string $method, string $path, array $body = [], string $contentType = 'application/json'): array
     {
-        $url = "{$this->baseUrl}/{$path}";
+        return $this->requestUrl($method, "{$this->baseUrl}/{$path}", $body, $contentType)['data'];
+    }
+
+    /**
+     * Perform a request against an absolute URL (used for the vssps graph host as
+     * well as the default org host). Returns both the decoded body and the
+     * lower-cased response headers so callers can read pagination tokens.
+     *
+     * @return array{data: array<mixed>, headers: array<string,string>}
+     */
+    private function requestUrl(string $method, string $url, array $body = [], string $contentType = 'application/json'): array
+    {
         $ch = curl_init($url);
 
         $headers = [
@@ -220,11 +307,19 @@ class AzureDevOps
             "Accept: application/json",
         ];
 
+        $responseHeaders = [];
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_HTTPHEADER => $headers,
             CURLOPT_CUSTOMREQUEST => $method,
             CURLOPT_TIMEOUT => 15,
+            CURLOPT_HEADERFUNCTION => function ($ch, string $header) use (&$responseHeaders): int {
+                $parts = explode(':', $header, 2);
+                if (count($parts) === 2) {
+                    $responseHeaders[strtolower(trim($parts[0]))] = trim($parts[1]);
+                }
+                return strlen($header);
+            },
         ]);
 
         if ($body) {
@@ -247,6 +342,6 @@ class AzureDevOps
             throw new RuntimeException("API {$status}: {$message}");
         }
 
-        return $data ?? [];
+        return ['data' => $data ?? [], 'headers' => $responseHeaders];
     }
 }
