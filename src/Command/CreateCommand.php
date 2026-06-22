@@ -29,6 +29,7 @@ class CreateCommand extends Command
             ->addOption('priority', null, InputOption::VALUE_REQUIRED, 'Priority (1-4)')
             ->addOption('iteration', null, InputOption::VALUE_REQUIRED, 'Iteration/sprint path')
             ->addOption('area', null, InputOption::VALUE_REQUIRED, 'Area path')
+            ->addOption('parent', null, InputOption::VALUE_REQUIRED, 'Parent work item ID')
             ->addOption('project', 'p', InputOption::VALUE_REQUIRED, 'Project override');
     }
 
@@ -73,8 +74,20 @@ class CreateCommand extends Command
         }
 
         $id = $item['id'];
+
+        if ($parent = $input->getOption('parent')) {
+            try {
+                $this->api->setParent($project, $id, (int) $parent);
+            } catch (\RuntimeException $e) {
+                $io->warning("Created #{$id} but failed to link parent #{$parent}: {$e->getMessage()}");
+            }
+        }
+
         $url = $item['_links']['html']['href'] ?? '';
         $io->success("Created #{$id}: {$title}");
+        if ($parent) {
+            $io->text("Linked to parent #{$parent}");
+        }
         if ($url) {
             $io->text("<href={$url}>{$url}</>");
         }

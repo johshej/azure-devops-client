@@ -201,6 +201,34 @@ class AzureDevOps
         );
     }
 
+    /**
+     * Link a work item to a parent via a Hierarchy-Reverse relation
+     * (child -> parent direction).
+     */
+    public function setParent(string $project, int $id, int $parentId): void
+    {
+        $p = rawurlencode($project);
+        $parentUrl = "{$this->baseUrl}/{$p}/_apis/wit/workitems/{$parentId}";
+        $this->updateWorkItem($project, $id, self::parentRelationPatch($parentUrl));
+    }
+
+    /**
+     * Build the JSON-patch document that adds a parent relation.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public static function parentRelationPatch(string $parentUrl): array
+    {
+        return [[
+            'op' => 'add',
+            'path' => '/relations/-',
+            'value' => [
+                'rel' => 'System.LinkTypes.Hierarchy-Reverse',
+                'url' => $parentUrl,
+            ],
+        ]];
+    }
+
     public function getWorkItemTypes(string $project): array
     {
         $p = rawurlencode($project);
