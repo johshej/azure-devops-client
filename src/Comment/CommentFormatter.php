@@ -18,6 +18,11 @@ class CommentFormatter
     /**
      * Build the comment HTML for the ADO comments API.
      *
+     * $comment is treated as plain text, not HTML: every part of it other than
+     * a recognized "@Name" mention is run through htmlspecialchars(). Passing
+     * markup here renders as literal escaped tags in the RTE, not real HTML —
+     * unlike the description field, which the API accepts as raw HTML.
+     *
      * @param callable(string):?string $resolver Maps a display name to its tfid
      *                                            (storageKey), or null if unknown.
      */

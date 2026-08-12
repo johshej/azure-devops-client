@@ -31,7 +31,7 @@ class UpdateCommand extends Command
             ->addOption('priority', null, InputOption::VALUE_REQUIRED, 'Priority (1-4)')
             ->addOption('description', 'd', InputOption::VALUE_REQUIRED, 'New description')
             ->addOption('iteration', null, InputOption::VALUE_REQUIRED, 'Move to iteration path')
-            ->addOption('comment', 'c', InputOption::VALUE_REQUIRED, 'Add a comment')
+            ->addOption('comment', 'c', InputOption::VALUE_REQUIRED, 'Add a comment (plain text with @Name mentions — HTML is escaped, not rendered; unlike --description)')
             ->addOption('project', 'p', InputOption::VALUE_REQUIRED, 'Project override');
     }
 
